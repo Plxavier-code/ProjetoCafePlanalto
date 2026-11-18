@@ -1,0 +1,124 @@
+name: cafeplanalto
+
+mgmt:
+  network: clab-mgmt
+  ipv4-subnet: 172.30.0.0/24
+
+topology:
+  nodes:
+    # ---------- Roteadores ----------
+    r-matriz:
+      kind: linux
+      image: cafeplanalto/roteador:latest
+      exec:
+        - sysctl -w net.ipv4.ip_forward=1
+        - ip link set eth1 up
+        - ip link set eth2 up
+        - ip link set eth3 up
+        - ip addr add 10.0.0.1/30 dev eth1
+        - ip addr add 172.20.10.1/24 dev eth2
+        - ip addr add 172.20.99.1/24 dev eth3
+        - ip route add 172.20.20.0/24 via 10.0.0.2
+
+    r-filial:
+      kind: linux
+      image: cafeplanalto/roteador:latest
+      exec:
+        - sysctl -w net.ipv4.ip_forward=1
+        - ip link set eth1 up
+        - ip link set eth2 up
+        - ip addr add 10.0.0.2/30 dev eth1
+        - ip addr add 172.20.20.1/24 dev eth2
+        - ip route add 172.20.10.0/24 via 10.0.0.1
+        - ip route add 172.20.99.0/24 via 10.0.0.1
+
+    # ---------- Switches (bridges Linux criadas pelo Makefile) ----------
+    sw-servicos:
+      kind: bridge
+    sw-gerencia:
+      kind: bridge
+    sw-filial:
+      kind: bridge
+
+    # ---------- LAN Servicos ----------
+    dns:
+      kind: linux
+      image: cafeplanalto/dns:latest
+      binds:
+        - docker/dns/Corefile:/etc/coredns/Corefile
+        - docker/dns/db.cafeplanalto.lab:/etc/coredns/db.cafeplanalto.lab
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.10.10/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.10.1
+        - ip route add 10.0.0.0/30 via 172.20.10.1
+
+    web:
+      kind: linux
+      image: cafeplanalto/host:latest
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.10.20/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.10.1
+        - ip route add 10.0.0.0/30 via 172.20.10.1
+        - sh -c "echo 'nameserver 172.20.10.10' > /etc/resolv.conf"
+
+    api:
+      kind: linux
+      image: cafeplanalto/host:latest
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.10.21/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.10.1
+        - ip route add 10.0.0.0/30 via 172.20.10.1
+        - sh -c "echo 'nameserver 172.20.10.10' > /etc/resolv.conf"
+
+    db:
+      kind: linux
+      image: cafeplanalto/host:latest
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.10.22/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.10.1
+        - ip route add 10.0.0.0/30 via 172.20.10.1
+        - sh -c "echo 'nameserver 172.20.10.10' > /etc/resolv.conf"
+
+    # ---------- LAN Filial ----------
+    cliente-carga:
+      kind: linux
+      image: cafeplanalto/host:latest
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.20.20/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.20.1
+        - ip route add 10.0.0.0/30 via 172.20.20.1
+        - sh -c "echo 'nameserver 172.20.10.10' > /etc/resolv.conf"
+
+    sonda:
+      kind: linux
+      image: cafeplanalto/host:latest
+      exec:
+        - ip link set eth1 up
+        - ip addr add 172.20.20.30/24 dev eth1
+        - ip route add 172.20.0.0/16 via 172.20.20.1
+        - ip route add 10.0.0.0/30 via 172.20.20.1
+        - sh -c "echo 'nameserver 172.20.10.10' > /etc/resolv.conf"
+
+  links:
+    # WAN
+    - endpoints: ["r-matriz:eth1", "r-filial:eth1"]
+
+    # LAN Servicos
+    - endpoints: ["r-matriz:eth2", "sw-servicos:s1"]
+    - endpoints: ["dns:eth1", "sw-servicos:s2"]
+    - endpoints: ["web:eth1", "sw-servicos:s3"]
+    - endpoints: ["api:eth1", "sw-servicos:s4"]
+    - endpoints: ["db:eth1", "sw-servicos:s5"]
+
+    # LAN Gerencia (hosts entram nas fases 3 e 4)
+    - endpoints: ["r-matriz:eth3", "sw-gerencia:g1"]
+
+    # LAN Filial
+    - endpoints: ["r-filial:eth2", "sw-filial:f1"]
+    - endpoints: ["cliente-carga:eth1", "sw-filial:f2"]
+    - endpoints: ["sonda:eth1", "sw-filial:f3"]
